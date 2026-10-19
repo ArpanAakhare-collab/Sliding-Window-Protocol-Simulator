@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="theme-color" content="#ffffff">
+  <title>ReliableLink — Sliding Window Protocol Simulator & Lab</title>
+  
+  <!-- Premium Fonts with Instant Fallbacks -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient-glow glow-cyan"></div>
+  <div class="ambient-glow glow-indigo"></div>
+  <div class="ambient-glow glow-emerald"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo-wrapper">
+          <div class="logo-pulse-ring"></div>
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+              <path d="M12 10v4"></path>
+              <path d="m9 12 3-2 3 2"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="header-text">
+          <div class="title-row">
+            <h1>ReliableLink</h1>
+            <span class="version-tag">v2.0 Pro</span>
+          </div>
+          <p class="subtitle">Interactive Sliding Window Protocol Simulator &bull; Computer Networks Lab</p>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Quick Preset Scenarios -->
+        <div class="preset-selector-wrapper">
+          <label for="selectScenarioPreset" class="preset-label">⚡ Scenarios:</label>
+          <select id="selectScenarioPreset" class="preset-select" title="Load predefined demonstration scenario">
+            <option value="default">Default Clean Transmission</option>
+            <option value="saw-ack-lost">Stop-and-Wait: Lost ACK Recovery</option>
+            <option value="gbn-frame-lost">Go-Back-N: Frame 2 Lost (Go-Back-N Action)</option>
+            <option value="sr-buffering">Selective Repeat: Frame 2 Lost (Buffer & Selective Retry)</option>
+            <option value="burst-stream">High Throughput Pipeline</option>
+          </select>
+        </div>
+
+        <!-- Audio Sound Effects Toggle -->
+        <button class="header-btn" id="btnToggleSound" title="Toggle audio sound effects (Web Audio API)">
+          <span class="btn-icon" id="soundIcon">🔊</span>
+          <span class="btn-label" id="soundLabel">Sound ON</span>
+        </button>
+
+        <!-- Theme Toggle (Light / Dark Mode) -->
+        <button class="header-btn theme-toggle-btn" id="btnToggleTheme" title="Toggle Dark / Light Theme (Key: T)">
+          <span class="btn-icon" id="themeIcon">🌙</span>
+          <span class="btn-label" id="themeLabel">Dark</span>
+        </button>
+
+        <!-- Keyboard Shortcuts Help -->
+        <button class="header-btn" id="btnShortcutsHelp" title="Keyboard Shortcuts Reference">
+          <span class="btn-icon">⌨️</span>
+          <span class="btn-label">Shortcuts</span>
+        </button>
+
+        <!-- Live Status Pill -->
+        <div class="status-pill" id="simStatusPill">
+          <span class="status-dot" id="simStatusDot"></span>
+          <span id="simStatusText">Ready (Idle)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Controls Panel -->
+    <section class="controls-panel" aria-label="Simulation Controls">
+      <!-- Protocol Switcher -->
+      <div class="control-group protocol-group">
+        <div class="group-header">
+          <label class="group-label">Select Protocol</label>
+          <span class="group-caption">Sliding Window ARQ Family</span>
+        </div>
+        <div class="protocol-selector" role="radiogroup">
+          <button class="proto-btn active" data-protocol="SAW" id="btnProtoSAW">
+            <div class="proto-top">
+              <span class="proto-name">Stop-and-Wait</span>
+              <span class="proto-badge">Ws = 1</span>
+            </div>
+            <span class="proto-sub">1-Bit Seq &bull; Lock-Step</span>
+          </button>
+          <button class="proto-btn" data-protocol="GBN" id="btnProtoGBN">
+            <div class="proto-top">
+              <span class="proto-name">Go-Back-N</span>
+              <span class="proto-badge">Ws = N, Wr = 1</span>
+            </div>
+            <span class="proto-sub">Cumulative ACK &bull; Discard OOO</span>
+          </button>
+          <button class="proto-btn" data-protocol="SR" id="btnProtoSR">
+            <div class="proto-top">
+              <span class="proto-name">Selective Repeat</span>
+              <span class="proto-badge">Ws = N, Wr = N</span>
+            </div>
+            <span class="proto-sub">Individual ACK &bull; RX Buffer</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Parameters Configuration -->
+      <div class="control-group config-group">
+        <div class="group-header">
+          <label class="group-label">Configuration</label>
+          <span class="group-caption">Network Parameters</span>
+        </div>
+        <div class="config-grid">
+          <!-- Total Frames -->
+          <div class="input-item">
+            <label for="totalFramesInput">Total Frames</label>
+            <div class="stepper-box">
+              <button type="button" class="stepper-btn" id="btnFramesMinus" title="Decrease frames">&minus;</button>
+              <input type="number" id="totalFramesInput" min="3" max="15" value="8">
+              <button type="button" class="stepper-btn" id="btnFramesPlus" title="Increase frames">&plus;</button>
+            </div>
+            <span class="range-hint">Range: 3 to 15</span>
+          </div>
+
+          <!-- Window Size -->
+          <div class="input-item" id="windowSizeContainer">
+            <label for="windowSizeInput">Window Size (<span class="code-font">N</span>)</label>
+            <div class="stepper-box">
+              <button type="button" class="stepper-btn" id="btnWinMinus" title="Decrease window">&minus;</button>
+              <input type="number" id="windowSizeInput" min="1" max="6" value="4">
+              <button type="button" class="stepper-btn" id="btnWinPlus" title="Increase window">&plus;</button>
+            </div>
+            <span class="range-hint" id="windowSizeHint">(1 - 6)</span>
+          </div>
+
+          <!-- Speed Slider & Quick Pills -->
+          <div class="input-item speed-item">
+            <div class="speed-header">
+              <label for="speedSlider">Speed</label>
+              <span id="speedDisplay" class="accent-text">1.0x</span>
+            </div>
+            <input type="range" id="speedSlider" min="0.5" max="2.5" step="0.5" value="1.0">
+            <div class="speed-pills">
+              <button type="button" class="speed-pill" data-speed="0.5">0.5x</button>
+              <button type="button" class="speed-pill active" data-speed="1.0">1.0x</button>
+              <button type="button" class="speed-pill" data-speed="1.5">1.5x</button>
+              <button type="button" class="speed-pill" data-speed="2.0">2.0x</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="control-group actions-group">
+        <div class="group-header">
+          <label class="group-label">Simulation Control</label>
+          <span class="group-caption">Deterministic Engine</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnStart">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>Start</span>
+          </button>
+          <button class="btn btn-secondary" id="btnPause" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+            <span>Pause</span>
+          </button>
+          <button class="btn btn-secondary" id="btnStep" title="Single step simulation tick (300ms forward)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="4" x2="19" y2="20" stroke="currentColor" stroke-width="2"></line></svg>
+            <span>Step</span>
+          </button>
+          <button class="btn btn-danger" id="btnReset">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+            <span>Reset</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Fault Injection / Loss Simulator -->
+      <div class="control-group fault-group">
+        <div class="group-header">
+          <label class="group-label">Loss Simulation</label>
+          <span class="group-caption">Fault Injection</span>
+        </div>
+        <div class="fault-controls">
+          <button class="btn btn-fault" id="btnDropNextFrame" title="Drops the next frame traveling through the channel">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            <span id="labelDropNextFrame">Drop Next Frame</span>
+          </button>
+          <button class="btn btn-fault" id="btnDropNextAck" title="Drops the next acknowledgement traveling through the channel">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+            <span id="labelDropNextAck">Drop Next ACK</span>
+          </button>
+          <div class="target-loss-select">
+            <label for="selectDropTarget">Auto-Drop:</label>
+            <select id="selectDropTarget">
+              <option value="none">None (Clean Channel)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Notification Toast Bar -->
+    <div class="toast-bar" id="toastBar" aria-live="polite">
+      <span class="toast-icon" id="toastIcon">ℹ️</span>
+      <span class="toast-msg" id="toastMsg">Ready! Choose a protocol and click Start to begin the transmission simulation.</span>
+    </div>
+
+    <!-- Main Visual Stage (Sender - Channel - Receiver) -->
+    <main class="simulation-stage">
+      <!-- SENDER NODE -->
+      <div class="node-card sender-card">
+        <div class="node-header">
+          <div class="node-title">
+            <div class="node-icon-glow sender-glow-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="2"></circle>
+                <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path>
+              </svg>
+            </div>
+            <div>
+              <span class="node-badge sender-badge">TRANSMITTER</span>
+              <h3>Host A (Sender)</h3>
+            </div>
+          </div>
+          <div class="window-pointers" id="senderPointers">
+            <span class="pointer-tag">Base: <strong id="ptrBase">0</strong></span>
+            <span class="pointer-tag">NextSeq: <strong id="ptrNext">0</strong></span>
+          </div>
+        </div>
+
+        <div class="node-body">
+          <div class="buffer-label-row">
+            <div class="buffer-title-wrap">
+              <span class="buffer-title">Sender Buffer</span>
+              <span class="buffer-mode-chip" id="senderModeChip">Sliding Window</span>
+            </div>
+            <span class="subtext" id="senderWindowScope">[ 0 to 3 ]</span>
+          </div>
+
+          <!-- Dynamic Visual Window Bracket Indicator -->
+          <div class="window-bracket-container">
+            <div class="window-bracket-bar" id="senderWindowBracket">
+              <span class="bracket-label" id="senderBracketLabel">Current Window (N=4)</span>
+            </div>
+          </div>
+
+          <!-- Sender frames visualization -->
+          <div class="frame-track" id="senderFrameTrack">
+            <!-- Dynamically populated frame items -->
+          </div>
+
+          <!-- Timer Status -->
+          <div class="timer-card" id="senderTimerCard">
+            <div class="timer-header">
+              <div class="timer-title-box">
+                <span class="timer-icon">⏱️</span>
+                <span>Oldest Frame Timeout Timer</span>
+              </div>
+              <span class="timer-countdown" id="timerDisplay">Inactive</span>
+            </div>
+            <div class="timer-progress-bg">
+              <div class="timer-progress-fill" id="timerProgressFill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSMISSION CHANNEL -->
+      <div class="channel-stage">
+        <div class="channel-header">
+          <div class="channel-title">
+            <div class="channel-pulse-dot"></div>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+            <span>Unreliable Physical Medium (Air / Optical Fiber)</span>
+          </div>
+          <div class="channel-actions">
+            <span class="channel-tip">💡 Tip: Click any moving packet in flight to simulate immediate packet loss!</span>
+          </div>
+        </div>
+
+        <!-- Lane 1: Data Frames (Left to Right) -->
+        <div class="lane-wrapper">
+          <div class="lane-direction">
+            <div class="lane-tag">
+              <span class="direction-arrow">&rarr;</span>
+              <span>Data Frames (Sender &rarr; Receiver)</span>
+            </div>
+            <span class="lane-sub">Propagation Delay: ~2.4s</span>
+          </div>
+          <div class="transmission-lane forward-lane" id="frameLane" title="Click a moving frame to drop it">
+            <div class="lane-grid-pattern"></div>
+            <div class="lane-track-line"></div>
+            <!-- In-flight frames will be injected here -->
+          </div>
+        </div>
+
+        <!-- Lane 2: Acknowledgements (Right to Left) -->
+        <div class="lane-wrapper">
+          <div class="lane-direction">
+            <div class="lane-tag">
+              <span class="direction-arrow">&larr;</span>
+              <span>Acknowledgements (Receiver &rarr; Sender)</span>
+            </div>
+            <span class="lane-sub">Reverse Propagation</span>
+          </div>
+          <div class="transmission-lane reverse-lane" id="ackLane" title="Click a moving ACK to drop it">
+            <div class="lane-grid-pattern"></div>
+            <div class="lane-track-line"></div>
+            <!-- In-flight ACKs will be injected here -->
+          </div>
+        </div>
+
+        <!-- Channel Footer Status -->
+        <div class="channel-footer-bar">
+          <div class="channel-stat">
+            <span class="stat-dot green"></span>
+            <span>Channel: Active</span>
+          </div>
+          <div class="channel-stat">
+            <span>Noise Model: Zero-Bit Alteration / Drop Only</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RECEIVER NODE -->
+      <div class="node-card receiver-card">
+        <div class="node-header">
+          <div class="node-title">
+            <div class="node-icon-glow receiver-glow-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 11a9 9 0 0 1 9 9"></path>
+                <path d="M4 4a16 16 0 0 1 16 16"></path>
+                <circle cx="5" cy="19" r="1"></circle>
+              </svg>
+            </div>
+            <div>
+              <span class="node-badge receiver-badge">DESTINATION</span>
+              <h3>Host B (Receiver)</h3>
+            </div>
+          </div>
+          <div class="window-pointers" id="receiverPointers">
+            <span class="pointer-tag">Expected: <strong id="ptrExpected">0</strong></span>
+          </div>
+        </div>
+
+        <div class="node-body">
+          <div class="buffer-label-row">
+            <div class="buffer-title-wrap">
+              <span class="buffer-title">Receiver Buffer</span>
+              <span class="buffer-mode-chip receiver-mode-chip" id="receiverModeChip">In-Order Accept</span>
+            </div>
+            <span class="subtext" id="receiverBufferScope">Expected 0</span>
+          </div>
+
+          <!-- Dynamic Visual Receiver Window Bracket (Used in SR) -->
+          <div class="window-bracket-container">
+            <div class="window-bracket-bar receiver-bracket" id="receiverWindowBracket">
+              <span class="bracket-label" id="receiverBracketLabel">Receiver Window</span>
+            </div>
+          </div>
+
+          <!-- Receiver frames visualization -->
+          <div class="frame-track" id="receiverFrameTrack">
+            <!-- Dynamically populated frame items -->
+          </div>
+
+          <!-- Receiver Action Feedback -->
+          <div class="receiver-status-box" id="receiverStatusBox">
+            <span class="status-indicator-dot"></span>
+            <span id="receiverStatusText">Awaiting initial frame from Sender...</span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Legend & Delivery Progress -->
+    <div class="progress-and-legend">
+      <div class="delivery-progress-card">
+        <div class="progress-info">
+          <div class="progress-title-box">
+            <span class="progress-icon">📊</span>
+            <span class="progress-title">Overall Delivery Progress</span>
+          </div>
+          <span class="progress-percentage" id="deliveryProgressText">0 / 8 Delivered (0%)</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="deliveryProgressBar" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div class="legend-card">
+        <span class="legend-title">Frame States Reference:</span>
+        <div class="legend-items">
+          <span class="legend-item"><span class="color-chip chip-unsent"></span> Unsent (WAIT)</span>
+          <span class="legend-item"><span class="color-chip chip-transit"></span> In Flight (SEND)</span>
+          <span class="legend-item"><span class="color-chip chip-acked"></span> Acknowledged (ACK)</span>
+          <span class="legend-item"><span class="color-chip chip-buffered"></span> Buffered RX (SR)</span>
+          <span class="legend-item"><span class="color-chip chip-timeout"></span> Timed Out / Lost</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metrics & Event Log Grid -->
+    <section class="stats-and-log-section">
+      <!-- Live Metrics Cards -->
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-header-row">
+            <span class="metric-label">Delivered Frames</span>
+            <span class="metric-chip-icon">📥</span>
+          </div>
+          <span class="metric-value accent-green" id="metricDelivered">0</span>
+          <span class="metric-sub" id="metricDeliveredSub">of 8 total</span>
+        </div>
+        <div class="metric-card">
+          <div class="metric-header-row">
+            <span class="metric-label">Transmissions</span>
+            <span class="metric-chip-icon">🚀</span>
+          </div>
+          <span class="metric-value" id="metricTransmissions">0</span>
+          <span class="metric-sub">original + retries</span>
+        </div>
+        <div class="metric-card">
+          <div class="metric-header-row">
+            <span class="metric-label">Retransmissions</span>
+            <span class="metric-chip-icon">🔄</span>
+          </div>
+          <span class="metric-value accent-yellow" id="metricRetransmissions">0</span>
+          <span class="metric-sub">due to timeouts</span>
+        </div>
+        <div class="metric-card">
+          <div class="metric-header-row">
+            <span class="metric-label">Lost Packets</span>
+            <span class="metric-chip-icon">💥</span>
+          </div>
+          <span class="metric-value accent-red" id="metricLostPackets">0</span>
+          <span class="metric-sub">frames & ACKs</span>
+        </div>
+        <div class="metric-card metric-efficiency-card">
+          <div class="metric-header-row">
+            <span class="metric-label">Channel Efficiency (&eta;)</span>
+            <span class="efficiency-quality-badge" id="metricQualityBadge">Optimal</span>
+          </div>
+          <span class="metric-value accent-cyan" id="metricEfficiency">100%</span>
+          <span class="metric-sub">Delivered &divide; Total Transmitted</span>
+        </div>
+      </div>
+
+      <!-- Real-time Event Log -->
+      <div class="log-card">
+        <div class="log-header">
+          <div class="log-title">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <h3>Real-Time Transmission Event Log</h3>
+          </div>
+          <div class="log-actions">
+            <!-- Filter Pills -->
+            <div class="log-filter-pills">
+              <button type="button" class="log-filter-btn active" data-filter="ALL">All</button>
+              <button type="button" class="log-filter-btn" data-filter="SENT">Sent</button>
+              <button type="button" class="log-filter-btn" data-filter="ACK">ACKs</button>
+              <button type="button" class="log-filter-btn" data-filter="LOST">Lost</button>
+            </div>
+            <button class="btn-tool-log" id="btnCopyLog" title="Copy log to clipboard">📋 Copy</button>
+            <button class="btn-tool-log" id="btnClearLog" title="Clear log entries">🗑️ Clear</button>
+          </div>
+        </div>
+        <div class="log-body" id="eventLog" role="log" aria-live="polite">
+          <div class="log-entry log-system" data-type="INFO">
+            <span class="log-time">00:00.00</span>
+            <span class="badge badge-info">INFO</span>
+            <span class="log-msg">Simulator initialized. Protocol: Stop-and-Wait ARQ. Ready to start.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Educational & Practical Lab Guide Section -->
+    <section class="education-section">
+      <div class="education-card">
+        <div class="edu-nav-tabs">
+          <button class="edu-tab active" data-tab="theory">
+            <span>📖</span> Protocol Mechanics
+          </button>
+          <button class="edu-tab" data-tab="comparison">
+            <span>⚖️</span> Comparison Matrix (SAW vs GBN vs SR)
+          </button>
+          <button class="edu-tab" data-tab="faq">
+            <span>🎓</span> Q&A Cheatsheet
+          </button>
+          <button class="edu-tab" data-tab="formulas">
+            <span>📐</span> Mathematical Formulas
+          </button>
+        </div>
+
+        <!-- Tab 1: Protocol Theory -->
+        <div class="edu-tab-content active" id="tabTheory">
+          <div class="edu-header">
+            <div class="edu-title">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+              <h2 id="theoryTitle">Stop-and-Wait Protocol — Concept & Analysis Guide</h2>
+            </div>
+            <span class="edu-tag" id="theoryTag">Window Size: Sender = 1, Receiver = 1</span>
+          </div>
+          <div class="edu-body" id="theoryBody">
+            <!-- Dynamically updated based on protocol -->
+          </div>
+        </div>
+
+        <!-- Tab 2: Side-by-Side Comparison Matrix -->
+        <div class="edu-tab-content" id="tabComparison">
+          <div class="table-responsive">
+            <table class="comparison-table">
+              <thead>
+                <tr>
+                  <th>Feature / Parameter</th>
+                  <th>Stop-and-Wait ARQ</th>
+                  <th>Go-Back-N (GBN) ARQ</th>
+                  <th>Selective Repeat (SR) ARQ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Sender Window Size (W<sub>s</sub>)</strong></td>
+                  <td>Fixed at 1</td>
+                  <td>N (where N &gt; 1, typically 2<sup>m</sup> - 1)</td>
+                  <td>N (typically 2<sup>m-1</sup>)</td>
+                </tr>
+                <tr>
+                  <td><strong>Receiver Window Size (W<sub>r</sub>)</strong></td>
+                  <td>Fixed at 1</td>
+                  <td>Fixed at 1</td>
+                  <td>N (matches Sender Window)</td>
+                </tr>
+                <tr>
+                  <td><strong>Acknowledgement Type</strong></td>
+                  <td>Individual (ACK for current frame)</td>
+                  <td><strong>Cumulative</strong> (ACK k acknowledges all frames &le; k)</td>
+                  <td><strong>Individual / Selective</strong> (Independent ACK for each frame)</td>
+                </tr>
+                <tr>
+                  <td><strong>Out-of-Order Frames</strong></td>
+                  <td>Discarded immediately</td>
+                  <td><strong>Discarded</strong> (No receiver buffer)</td>
+                  <td><strong>Buffered</strong> in receiver buffer until gaps are filled</td>
+                </tr>
+                <tr>
+                  <td><strong>Retransmission on Timeout</strong></td>
+                  <td>Single frame retransmitted</td>
+                  <td><strong>Entire window</strong> from Base to NextSeq retransmitted!</td>
+                  <td><strong>ONLY the timed-out frame</strong> retransmitted</td>
+                </tr>
+                <tr>
+                  <td><strong>Sequence Number Space (2<sup>m</sup>)</strong></td>
+                  <td>1 bit (0 and 1)</td>
+                  <td>W<sub>s</sub> &le; 2<sup>m</sup> - 1</td>
+                  <td>W<sub>s</sub> + W<sub>r</sub> &le; 2<sup>m</sup> &implies; W<sub>s</sub> &le; 2<sup>m-1</sup></td>
+                </tr>
+                <tr>
+                  <td><strong>Channel Efficiency (&eta;)</strong></td>
+                  <td>1 / (1 + 2a) &bull; Low on high delay</td>
+                  <td>N / (1 + 2a) &bull; High, drops on lost packet</td>
+                  <td>N / (1 + 2a) &bull; Highest throughput on lossy link</td>
+                </tr>
+                <tr>
+                  <td><strong>Implementation Complexity</strong></td>
+                  <td>Simplest (Minimal memory)</td>
+                  <td>Moderate (Single sender timer)</td>
+                  <td>Highest (Multiple timers, RX sorting buffers)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab 3: Collapsible FAQ / Cheatsheet -->
+        <div class="edu-tab-content" id="tabFaq">
+          <div class="faq-section">
+            <div class="faq-header-bar">
+              <h3>Top Examination Questions & Model Answers</h3>
+              <span class="faq-sub">Prepared for Computer Networks Lab & Theory Examinations</span>
+            </div>
+            <div class="faq-grid" id="faqGrid">
+              <!-- Dynamically populated or static Q&A -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Mathematical Formulas -->
+        <div class="edu-tab-content" id="tabFormulas">
+          <div class="formulas-grid">
+            <div class="formula-card">
+              <h4>1. Channel Utilization / Efficiency (&eta;)</h4>
+              <div class="formula-display">
+                &eta; = Useful Transmission Time / Total Cycle Time = T<sub>t</sub> / (T<sub>t</sub> + 2 &bull; T<sub>p</sub>)
+              </div>
+              <p>Defining normalized delay parameter <strong>a = T<sub>p</sub> / T<sub>t</sub></strong> (Propagation Delay &divide; Transmission Delay):</p>
+              <ul class="formula-notes">
+                <li><strong>Stop-and-Wait:</strong> &eta; = 1 / (1 + 2a)</li>
+                <li><strong>Go-Back-N &amp; Selective Repeat:</strong> &eta; = min(1, N / (1 + 2a))</li>
+              </ul>
+            </div>
+
+            <div class="formula-card">
+              <h4>2. Delay Calculations</h4>
+              <div class="formula-display">
+                T<sub>t</sub> = Frame Size L (bits) / Bandwidth B (bps) &emsp;|&emsp; T<sub>p</sub> = Distance d (m) / Speed v (m/s)
+              </div>
+              <ul class="formula-notes">
+                <li><strong>Round Trip Time (RTT):</strong> RTT &approx; 2 &bull; T<sub>p</sub></li>
+                <li><strong>Total Transfer Time per frame:</strong> T<sub>total</sub> = T<sub>t</sub> + 2 &bull; T<sub>p</sub></li>
+              </ul>
+            </div>
+
+            <div class="formula-card">
+              <h4>3. Optimal Window Size &amp; Bandwidth-Delay Product (BDP)</h4>
+              <div class="formula-display">
+                W<sub>opt</sub> = 1 + 2a = 1 + (2 &bull; T<sub>p</sub> / T<sub>t</sub>)
+              </div>
+              <p>To achieve <strong>100% channel utilization</strong>, sender window size N must satisfy <strong>N &ge; 1 + 2a</strong>, which fully saturates the link pipeline.</p>
+            </div>
+
+            <div class="formula-card">
+              <h4>4. Window Size vs Sequence Space (2<sup>m</sup>)</h4>
+              <ul class="formula-notes">
+                <li><strong>Go-Back-N:</strong> W<sub>s</sub> &le; 2<sup>m</sup> - 1. If W<sub>s</sub> = 2<sup>m</sup>, receiver cannot distinguish a retransmission from a brand new cycle!</li>
+                <li><strong>Selective Repeat:</strong> W<sub>s</sub> + W<sub>r</sub> &le; 2<sup>m</sup>. When W<sub>s</sub> = W<sub>r</sub> = N, then N &le; 2<sup>m-1</sup>.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Professional Footer -->
+    <footer class="footer">
+      <div class="footer-divider"></div>
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <div class="footer-logo">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+              <line x1="6" y1="6" x2="6.01" y2="6"></line>
+              <line x1="6" y1="18" x2="6.01" y2="18"></line>
+              <path d="M12 10v4"></path>
+              <path d="m9 12 3-2 3 2"></path>
+            </svg>
+          </div>
+          <span class="footer-title">ReliableLink &bull; Computer Networks Interactive Practical Project</span>
+        </div>
+        <div class="footer-badges">
+          <span class="footer-badge">100% Offline Capable</span>
+          <span class="footer-dot">&bull;</span>
+          <span class="footer-badge">Zero External Dependencies</span>
+          <span class="footer-dot">&bull;</span>
+          <span class="footer-badge">Academic Grade Simulation</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div class="modal-overlay" id="shortcutsModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>⌨️</span>
+          <h3>Keyboard Shortcuts Reference</h3>
+        </div>
+        <button class="modal-close" id="btnCloseShortcuts">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="shortcuts-grid">
+          <div class="shortcut-item">
+            <kbd>Space</kbd>
+            <span>Start / Pause Simulation</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>S</kbd>
+            <span>Step Forward (+300ms)</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>R</kbd>
+            <span>Reset Simulation</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>1</kbd>
+            <span>Switch to Stop-and-Wait</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>2</kbd>
+            <span>Switch to Go-Back-N</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>3</kbd>
+            <span>Switch to Selective Repeat</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>F</kbd>
+            <span>Toggle Drop Next Frame</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>A</kbd>
+            <span>Toggle Drop Next ACK</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>M</kbd>
+            <span>Mute / Unmute Audio FX</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>T</kbd>
+            <span>Toggle Dark / Light Theme</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>?</kbd>
+            <span>Toggle Shortcuts Dialog</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-hint">Press <kbd>Esc</kbd> to close</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
