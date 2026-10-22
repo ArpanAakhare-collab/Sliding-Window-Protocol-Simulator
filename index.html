@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <meta name="theme-color" content="#ffffff">
   <title>ReliableLink — Sliding Window Protocol Simulator & Lab</title>
   
@@ -302,6 +302,8 @@
             <span class="lane-sub">Propagation Delay: ~2.4s</span>
           </div>
           <div class="transmission-lane forward-lane" id="frameLane" title="Click a moving frame to drop it">
+            <span class="lane-endpoint endpoint-left">Host A (Tx)</span>
+            <span class="lane-endpoint endpoint-right">Host B (Rx)</span>
             <div class="lane-grid-pattern"></div>
             <div class="lane-track-line"></div>
             <!-- In-flight frames will be injected here -->
@@ -318,6 +320,8 @@
             <span class="lane-sub">Reverse Propagation</span>
           </div>
           <div class="transmission-lane reverse-lane" id="ackLane" title="Click a moving ACK to drop it">
+            <span class="lane-endpoint endpoint-left">Host A &larr;</span>
+            <span class="lane-endpoint endpoint-right">&larr; Host B</span>
             <div class="lane-grid-pattern"></div>
             <div class="lane-track-line"></div>
             <!-- In-flight ACKs will be injected here -->
@@ -523,6 +527,7 @@
 
         <!-- Tab 2: Side-by-Side Comparison Matrix -->
         <div class="edu-tab-content" id="tabComparison">
+          <div class="mobile-table-hint">👈 Swipe horizontally to view full protocol comparison matrix 👉</div>
           <div class="table-responsive">
             <table class="comparison-table">
               <thead>
@@ -673,6 +678,38 @@
       </div>
     </footer>
   </div>
+
+  <!-- Mobile Floating Quick Controls HUD (Active on Mobile screens <= 768px) -->
+  <aside class="mobile-floating-hud" id="mobileFloatingHud" aria-label="Mobile Simulation Controls">
+    <div class="hud-inner">
+      <div class="hud-status-strip">
+        <span class="hud-pill-proto" id="hudProtoBadge">Stop-and-Wait</span>
+        <span class="hud-status-text" id="hudStatusText">Ready (Idle)</span>
+        <button type="button" class="hud-jump-btn" id="hudBtnJump" title="Scroll directly to visual stage">
+          <span>🎯 Focus Stage</span>
+        </button>
+      </div>
+      <div class="hud-actions-row">
+        <button type="button" class="hud-btn hud-btn-primary" id="hudBtnStart" title="Start or Pause Simulation">
+          <svg class="hud-icon-play" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <svg class="hud-icon-pause" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          <span id="hudStartText">Start</span>
+        </button>
+        <button type="button" class="hud-btn hud-btn-secondary" id="hudBtnStep" title="Single Step (+300ms)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="4" x2="19" y2="20" stroke="currentColor" stroke-width="2"></line></svg>
+          <span>Step</span>
+        </button>
+        <button type="button" class="hud-btn hud-btn-fault" id="hudBtnDrop" title="Drop Next Frame or ACK">
+          <span class="hud-fault-icon">💥</span>
+          <span id="hudDropText">Drop Next</span>
+        </button>
+        <button type="button" class="hud-btn hud-btn-danger" id="hudBtnReset" title="Reset Simulation">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          <span>Reset</span>
+        </button>
+      </div>
+    </div>
+  </aside>
 
   <!-- Keyboard Shortcuts Modal -->
   <div class="modal-overlay" id="shortcutsModal" aria-hidden="true">

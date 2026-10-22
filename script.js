@@ -340,6 +340,18 @@ const DOM = {
   // Shortcuts Modal
   shortcutsModal: document.getElementById('shortcutsModal'),
   btnCloseShortcuts: document.getElementById('btnCloseShortcuts'),
+
+  // Mobile Floating Controls HUD
+  mobileFloatingHud: document.getElementById('mobileFloatingHud'),
+  hudBtnStart: document.getElementById('hudBtnStart'),
+  hudBtnStep: document.getElementById('hudBtnStep'),
+  hudBtnDrop: document.getElementById('hudBtnDrop'),
+  hudBtnReset: document.getElementById('hudBtnReset'),
+  hudBtnJump: document.getElementById('hudBtnJump'),
+  hudProtoBadge: document.getElementById('hudProtoBadge'),
+  hudStatusText: document.getElementById('hudStatusText'),
+  hudStartText: document.getElementById('hudStartText'),
+  hudDropText: document.getElementById('hudDropText'),
 };
 
 // ============================================================================
@@ -463,9 +475,9 @@ function resetSimulationState() {
   SimState.time.lastTimestamp = 0;
   SimState.time.simulatedElapsedMs = 0;
 
-  // Clear in-flight DOM packets
-  DOM.frameLane.innerHTML = '<div class="lane-grid-pattern"></div><div class="lane-track-line"></div>';
-  DOM.ackLane.innerHTML = '<div class="lane-grid-pattern"></div><div class="lane-track-line"></div>';
+  // Clear in-flight DOM packets (preserving station endpoint markers)
+  DOM.frameLane.innerHTML = '<span class="lane-endpoint endpoint-left">Host A (Tx)</span><span class="lane-endpoint endpoint-right">Host B (Rx)</span><div class="lane-grid-pattern"></div><div class="lane-track-line"></div>';
+  DOM.ackLane.innerHTML = '<span class="lane-endpoint endpoint-left">Host A &larr;</span><span class="lane-endpoint endpoint-right">&larr; Host B</span><div class="lane-grid-pattern"></div><div class="lane-track-line"></div>';
 
   // Button States
   DOM.btnStart.disabled = false;
@@ -516,15 +528,18 @@ function populateDropTargetDropdown() {
  * Checks if Sender can transmit more frames within the current window
  */
 function checkSenderTransmission() {
-  if (SimState.status !== 'RUNNING') return;
+  if (SimState.status !== 'RUNNING' && SimState.status !== 'PAUSED') return;
 
-  const { base, nextSeqNum } = SimState.sender;
   const { totalFrames, windowSize } = SimState;
 
   // Rule: Send next frame if sequence number is within window [base, base + N - 1]
-  while (nextSeqNum < base + windowSize && nextSeqNum < totalFrames) {
-    transmitFrame(nextSeqNum);
+  while (
+    SimState.sender.nextSeqNum < SimState.sender.base + windowSize &&
+    SimState.sender.nextSeqNum < totalFrames
+  ) {
+    const seq = SimState.sender.nextSeqNum;
     SimState.sender.nextSeqNum++;
+    transmitFrame(seq);
 
     // In Stop-and-Wait and GBN: start the sender timer if not already running
     if (!SimState.sender.timerRunning) {
@@ -1021,17 +1036,25 @@ function createPacketElement(packet, laneContainer) {
   el.innerHTML = `
     <span class="packet-icon">${iconSvg}</span>
     <span>${labelText}</span>
-    <span class="packet-drop-badge">Click to Drop ✕</span>
+    <span class="packet-drop-badge">Tap to Drop ✕</span>
   `;
 
-  el.addEventListener('click', (e) => {
+  const triggerPacketDrop = (e) => {
     e.stopPropagation();
     if (!packet.isLost) {
       packet.isLost = true;
-      packet.dropReason = 'Manual User Click in Channel';
-      showToast('warning', `You manually dropped ${packet.type} ${packet.seqNum}!`);
+      packet.dropReason = 'Manual User Tap in Channel';
+      if ('vibrate' in navigator) {
+        try { navigator.vibrate(40); } catch (_) {}
+      }
+      AudioSynth.playLoss();
+      showToast('warning', `You dropped ${packet.type} ${packet.seqNum}!`);
+      updateMetricsDisplay();
     }
-  });
+  };
+
+  el.addEventListener('click', triggerPacketDrop);
+  el.addEventListener('pointerdown', triggerPacketDrop);
 
   laneContainer.appendChild(el);
   packet.element = el;
@@ -1153,7 +1176,7 @@ function getStateAbbrev(status) {
 }
 
 /**
- * Updates visual sliding window brackets above the frame tracks
+ * Updates visual sliding window brackets above the frame tracks with pixel precision
  */
 function updateWindowBrackets() {
   const { base } = SimState.sender;
@@ -1161,34 +1184,70 @@ function updateWindowBrackets() {
   const { rcvBase } = SimState.receiver;
 
   // Sender Bracket
-  if (base >= totalFrames) {
-    DOM.senderWindowBracket.style.display = 'none';
+  if (base >= totalFrames || !DOM.senderWindowBracket) {
+    if (DOM.senderWindowBracket) DOM.senderWindowBracket.style.display = 'none';
   } else {
     DOM.senderWindowBracket.style.display = 'flex';
-    const leftPct = (base / totalFrames) * 100;
-    const rawWidthPct = (Math.min(windowSize, totalFrames - base) / totalFrames) * 100;
-    const widthPct = Math.min(100 - leftPct, Math.max(rawWidthPct, windowSize === 1 ? 12 : 14));
-    DOM.senderWindowBracket.style.left = `${leftPct}%`;
-    DOM.senderWindowBracket.style.width = `${widthPct}%`;
+    const track = DOM.senderFrameTrack;
+    const items = track ? track.querySelectorAll('.frame-item') : [];
+    if (items.length > base) {
+      const firstEl = items[base];
+      const lastIdx = Math.min(items.length - 1, base + windowSize - 1);
+      const lastEl = items[lastIdx];
+      if (firstEl && lastEl) {
+        const trackRect = track.getBoundingClientRect();
+        const firstRect = firstEl.getBoundingClientRect();
+        const lastRect = lastEl.getBoundingClientRect();
+        const left = Math.max(0, firstRect.left - trackRect.left);
+        const width = Math.max(34, lastRect.right - firstRect.left);
+        DOM.senderWindowBracket.style.left = `${left}px`;
+        DOM.senderWindowBracket.style.width = `${width}px`;
+      }
+    } else {
+      const leftPct = (base / totalFrames) * 100;
+      const rawWidthPct = (Math.min(windowSize, totalFrames - base) / totalFrames) * 100;
+      const widthPct = Math.min(100 - leftPct, Math.max(rawWidthPct, windowSize === 1 ? 12 : 14));
+      DOM.senderWindowBracket.style.left = `${leftPct}%`;
+      DOM.senderWindowBracket.style.width = `${widthPct}%`;
+    }
     DOM.senderBracketLabel.textContent = windowSize === 1 
       ? `[${base}]` 
       : `Win [${base}..${Math.min(totalFrames - 1, base + windowSize - 1)}]`;
   }
 
   // Receiver Bracket (Visible in SR)
-  if (protocol === 'SR' && rcvBase < totalFrames) {
+  if (protocol === 'SR' && rcvBase < totalFrames && DOM.receiverWindowBracket) {
     DOM.receiverWindowBracket.style.display = 'flex';
-    const leftPct = (rcvBase / totalFrames) * 100;
-    const rawWidthPct = (Math.min(windowSize, totalFrames - rcvBase) / totalFrames) * 100;
-    const widthPct = Math.min(100 - leftPct, Math.max(rawWidthPct, windowSize === 1 ? 12 : 14));
-    DOM.receiverWindowBracket.style.left = `${leftPct}%`;
-    DOM.receiverWindowBracket.style.width = `${widthPct}%`;
+    const track = DOM.receiverFrameTrack;
+    const items = track ? track.querySelectorAll('.frame-item') : [];
+    if (items.length > rcvBase) {
+      const firstEl = items[rcvBase];
+      const lastIdx = Math.min(items.length - 1, rcvBase + windowSize - 1);
+      const lastEl = items[lastIdx];
+      if (firstEl && lastEl) {
+        const trackRect = track.getBoundingClientRect();
+        const firstRect = firstEl.getBoundingClientRect();
+        const lastRect = lastEl.getBoundingClientRect();
+        const left = Math.max(0, firstRect.left - trackRect.left);
+        const width = Math.max(34, lastRect.right - firstRect.left);
+        DOM.receiverWindowBracket.style.left = `${left}px`;
+        DOM.receiverWindowBracket.style.width = `${width}px`;
+      }
+    } else {
+      const leftPct = (rcvBase / totalFrames) * 100;
+      const rawWidthPct = (Math.min(windowSize, totalFrames - rcvBase) / totalFrames) * 100;
+      const widthPct = Math.min(100 - leftPct, Math.max(rawWidthPct, windowSize === 1 ? 12 : 14));
+      DOM.receiverWindowBracket.style.left = `${leftPct}%`;
+      DOM.receiverWindowBracket.style.width = `${widthPct}%`;
+    }
     DOM.receiverBracketLabel.textContent = windowSize === 1 
       ? `RX [${rcvBase}]` 
       : `RX [${rcvBase}..${Math.min(totalFrames - 1, rcvBase + windowSize - 1)}]`;
-  } else {
+  } else if (DOM.receiverWindowBracket) {
     DOM.receiverWindowBracket.style.display = 'none';
   }
+
+  updateHUD();
 }
 
 function updatePointersAndScopes() {
@@ -1293,6 +1352,7 @@ function calculateEfficiency() {
 function updateStatusPill(status, text) {
   DOM.simStatusDot.className = `status-dot ${status.toLowerCase()}`;
   DOM.simStatusText.textContent = text;
+  updateHUD();
 }
 
 function showToast(type, msg) {
@@ -1492,12 +1552,30 @@ function updateTheorySection() {
   DOM.theoryTag.textContent = data.tag;
   DOM.theoryBody.innerHTML = data.html;
 
-  DOM.faqGrid.innerHTML = data.faqs.map(faq => `
-    <div class="faq-card">
-      <div class="faq-q">${escapeHtml(faq.q)}</div>
+  DOM.faqGrid.innerHTML = data.faqs.map((faq, idx) => `
+    <div class="faq-card ${idx === 0 ? 'expanded' : ''}" role="button" tabindex="0" aria-expanded="${idx === 0}">
+      <div class="faq-q">
+        <span class="faq-q-text">${escapeHtml(faq.q)}</span>
+        <span class="faq-chevron" aria-hidden="true">▾</span>
+      </div>
       <div class="faq-a">${escapeHtml(faq.a)}</div>
     </div>
   `).join('');
+
+  DOM.faqGrid.querySelectorAll('.faq-card').forEach(card => {
+    const toggle = () => {
+      AudioSynth.playClick();
+      card.classList.toggle('expanded');
+      card.setAttribute('aria-expanded', card.classList.contains('expanded'));
+    };
+    card.addEventListener('click', toggle);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  });
 }
 
 // ============================================================================
@@ -1697,6 +1775,14 @@ DOM.btnStart.addEventListener('click', () => {
     logEvent('INFO', 'Simulation started.');
     showToast('info', 'Simulation started! Frames entering transmission channel.');
     checkSenderTransmission();
+
+    // On mobile screens, smoothly scroll to bring the active visual channel into view
+    if (window.innerWidth <= 768) {
+      const stage = document.querySelector('.simulation-stage');
+      if (stage) {
+        stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   }
 });
 
@@ -1901,7 +1987,7 @@ DOM.btnClearLog.addEventListener('click', () => {
 });
 
 /**
- * Education Section Tab Switching
+ * Education Section Tab Switching with Mobile Auto-Center Scrolling
  */
 DOM.eduTabs.forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1915,7 +2001,186 @@ DOM.eduTabs.forEach(tab => {
     if (content) {
       content.classList.add('active');
     }
+
+    // Smoothly scroll active tab into center view in horizontally-scrollable tab container
+    tab.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   });
+});
+
+/**
+ * Mobile Touch Swipe Gestures for Educational Tabs
+ */
+const eduCardElement = document.querySelector('.education-card');
+if (eduCardElement) {
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  eduCardElement.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].clientX;
+    touchStartY = e.changedTouches[0].clientY;
+  }, { passive: true });
+
+  eduCardElement.addEventListener('touchend', (e) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartX;
+    const deltaY = e.changedTouches[0].clientY - touchStartY;
+
+    // Detect intentional horizontal swipe (> 50px delta and predominantly horizontal)
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      const tabs = Array.from(DOM.eduTabs);
+      const activeIdx = tabs.findIndex(t => t.classList.contains('active'));
+      if (activeIdx !== -1) {
+        if (deltaX < 0 && activeIdx < tabs.length - 1) {
+          // Swiped left -> next tab
+          tabs[activeIdx + 1].click();
+        } else if (deltaX > 0 && activeIdx > 0) {
+          // Swiped right -> previous tab
+          tabs[activeIdx - 1].click();
+        }
+      }
+    }
+  }, { passive: true });
+}
+
+/**
+ * Mobile Floating Controls HUD Logic & Handlers
+ */
+function updateHUD() {
+  if (!DOM.mobileFloatingHud) return;
+
+  // Protocol & Window Size Badge
+  if (DOM.hudProtoBadge) {
+    if (SimState.protocol === 'SAW') {
+      DOM.hudProtoBadge.textContent = 'Stop-and-Wait (Ws=1)';
+    } else if (SimState.protocol === 'GBN') {
+      DOM.hudProtoBadge.textContent = `GBN (N=${SimState.windowSize})`;
+    } else {
+      DOM.hudProtoBadge.textContent = `SR (N=${SimState.windowSize})`;
+    }
+  }
+
+  // Real-time Status Text
+  if (DOM.hudStatusText && DOM.simStatusText) {
+    DOM.hudStatusText.textContent = DOM.simStatusText.textContent;
+  }
+
+  // Play / Pause Toggle Button State
+  if (DOM.hudBtnStart) {
+    const playIcon = DOM.hudBtnStart.querySelector('.hud-icon-play');
+    const pauseIcon = DOM.hudBtnStart.querySelector('.hud-icon-pause');
+
+    if (SimState.status === 'RUNNING') {
+      if (playIcon) playIcon.style.display = 'none';
+      if (pauseIcon) pauseIcon.style.display = 'inline-block';
+      if (DOM.hudStartText) DOM.hudStartText.textContent = 'Pause';
+      DOM.hudBtnStart.classList.add('is-running');
+      DOM.hudBtnStart.disabled = false;
+    } else if (SimState.status === 'PAUSED') {
+      if (playIcon) playIcon.style.display = 'inline-block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+      if (DOM.hudStartText) DOM.hudStartText.textContent = 'Resume';
+      DOM.hudBtnStart.classList.remove('is-running');
+      DOM.hudBtnStart.disabled = false;
+    } else if (SimState.status === 'FINISHED') {
+      if (playIcon) playIcon.style.display = 'inline-block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+      if (DOM.hudStartText) DOM.hudStartText.textContent = 'Done';
+      DOM.hudBtnStart.classList.remove('is-running');
+      DOM.hudBtnStart.disabled = true;
+    } else {
+      if (playIcon) playIcon.style.display = 'inline-block';
+      if (pauseIcon) pauseIcon.style.display = 'none';
+      if (DOM.hudStartText) DOM.hudStartText.textContent = 'Start';
+      DOM.hudBtnStart.classList.remove('is-running');
+      DOM.hudBtnStart.disabled = false;
+    }
+  }
+
+  // Step Button
+  if (DOM.hudBtnStep) {
+    DOM.hudBtnStep.disabled = (SimState.status === 'FINISHED');
+  }
+
+  // Fault Drop Button Arm Status
+  if (DOM.hudBtnDrop && DOM.hudDropText) {
+    if (SimState.faults.dropNextFrame) {
+      DOM.hudBtnDrop.classList.add('active');
+      DOM.hudDropText.textContent = 'Frame Arm';
+    } else if (SimState.faults.dropNextAck) {
+      DOM.hudBtnDrop.classList.add('active');
+      DOM.hudDropText.textContent = 'ACK Arm';
+    } else {
+      DOM.hudBtnDrop.classList.remove('active');
+      DOM.hudDropText.textContent = 'Drop Next';
+    }
+  }
+}
+
+// Wire Mobile HUD Button Handlers
+if (DOM.hudBtnStart) {
+  DOM.hudBtnStart.addEventListener('click', () => {
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(20); } catch (_) {}
+    }
+    if (SimState.status === 'RUNNING') {
+      DOM.btnPause.click();
+    } else if (SimState.status === 'PAUSED') {
+      DOM.btnPause.click();
+    } else if (SimState.status === 'IDLE') {
+      DOM.btnStart.click();
+    }
+  });
+}
+
+if (DOM.hudBtnStep) {
+  DOM.hudBtnStep.addEventListener('click', () => {
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(15); } catch (_) {}
+    }
+    DOM.btnStep.click();
+  });
+}
+
+if (DOM.hudBtnReset) {
+  DOM.hudBtnReset.addEventListener('click', () => {
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(25); } catch (_) {}
+    }
+    DOM.btnReset.click();
+  });
+}
+
+if (DOM.hudBtnDrop) {
+  DOM.hudBtnDrop.addEventListener('click', () => {
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate(30); } catch (_) {}
+    }
+    DOM.btnDropNextFrame.click();
+    updateHUD();
+  });
+}
+
+if (DOM.hudBtnJump) {
+  DOM.hudBtnJump.addEventListener('click', () => {
+    const stage = document.querySelector('.simulation-stage');
+    if (stage) {
+      stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+// Recalculate brackets on screen resize or phone orientation change
+let windowResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(windowResizeTimer);
+  windowResizeTimer = setTimeout(() => {
+    updateWindowBrackets();
+  }, 100);
+});
+
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    updateWindowBrackets();
+  }, 150);
 });
 
 /**
