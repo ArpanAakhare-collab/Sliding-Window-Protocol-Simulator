@@ -1045,18 +1045,23 @@ input[type="range"] {
   font-weight: 600;
   color: var(--text-muted);
   margin-bottom: 6px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .buffer-title-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
 .buffer-title {
   color: var(--text-main);
   font-size: 0.82rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .buffer-mode-chip {
@@ -1067,12 +1072,17 @@ input[type="range"] {
   background: var(--cyan-soft);
   color: var(--cyan);
   border: 1px solid var(--cyan-border);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .receiver-mode-chip {
   background: var(--green-soft);
   color: var(--green);
   border-color: var(--green-border);
+  white-space: nowrap;
 }
 
 .subtext {
@@ -1080,10 +1090,15 @@ input[type="range"] {
   color: var(--cyan);
   font-size: 0.74rem;
   font-weight: 700;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .receiver-card .subtext {
   color: var(--green);
+  white-space: nowrap;
 }
 
 /* Dynamic Visual Sliding Window Bracket */
@@ -1122,6 +1137,7 @@ input[type="range"] {
   color: var(--cyan);
   letter-spacing: 0.04em;
   padding: 0 4px;
+  white-space: nowrap;
 }
 
 .receiver-bracket .bracket-label {

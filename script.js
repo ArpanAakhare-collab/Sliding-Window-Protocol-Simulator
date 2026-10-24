@@ -24,8 +24,9 @@ const CONFIG = {
   DEFAULT_TOTAL_FRAMES: 8,
   DEFAULT_WINDOW_SIZE: 4,
   DEFAULT_SPEED: 1.0,
-  BASE_PACKET_TRANSIT_TIME_MS: 2400, // Time for packet to traverse channel at 1.0x
-  BASE_TIMEOUT_DURATION_MS: 4800,    // Sender timeout timer duration at 1.0x
+  BASE_PACKET_TRANSIT_TIME_MS: 2400, // Propagation delay (time to traverse channel at 1.0x)
+  TRANSMISSION_DELAY_MS: 150,        // Serialization / inter-frame transmission delay (t_tx)
+  BASE_TIMEOUT_DURATION_MS: 5400,    // Sender timeout timer duration at 1.0x (RTT + margin)
 };
 
 const SimState = {
@@ -532,6 +533,9 @@ function checkSenderTransmission() {
 
   const { totalFrames, windowSize } = SimState;
 
+  // Track how many frames are sent in this burst for stagger offset
+  let burstCount = 0;
+
   // Rule: Send next frame if sequence number is within window [base, base + N - 1]
   while (
     SimState.sender.nextSeqNum < SimState.sender.base + windowSize &&
@@ -539,7 +543,8 @@ function checkSenderTransmission() {
   ) {
     const seq = SimState.sender.nextSeqNum;
     SimState.sender.nextSeqNum++;
-    transmitFrame(seq);
+    transmitFrame(seq, false, burstCount);
+    burstCount++;
 
     // In Stop-and-Wait and GBN: start the sender timer if not already running
     if (!SimState.sender.timerRunning) {
@@ -556,7 +561,7 @@ function checkSenderTransmission() {
 /**
  * Transmits a data frame into the physical channel
  */
-function transmitFrame(frameNum, isRetransmission = false) {
+function transmitFrame(frameNum, isRetransmission = false, burstIndex = 0) {
   const frameObj = SimState.sender.frames[frameNum];
   frameObj.status = 'transit';
   frameObj.transmissionCount++;
@@ -589,11 +594,21 @@ function transmitFrame(frameNum, isRetransmission = false) {
     SimState.faults.droppedFramesHistory.add(frameNum);
   }
 
+  // Calculate scheduled dispatch and arrival times with serialization delay
+  const currentTime = SimState.time.simulatedElapsedMs;
+  const propagationDelay = CONFIG.BASE_PACKET_TRANSIT_TIME_MS;
+  const transmissionDelay = CONFIG.TRANSMISSION_DELAY_MS;
+  const dispatchTime = currentTime + (burstIndex * transmissionDelay);
+  const arrivalTime = currentTime + propagationDelay + (burstIndex * transmissionDelay);
+
   // Create in-flight packet object
   const packet = {
     id: 'frame-' + frameNum + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
     type: 'FRAME',
+    seq: frameNum,
     seqNum: frameNum,
+    dispatchTime: dispatchTime,
+    arrivalTime: arrivalTime,
     progress: 0.0,
     isLost: shouldDrop,
     dropReason: dropReason,
@@ -733,7 +748,7 @@ function deliverBufferedFramesSR() {
 /**
  * Transmits an ACK from Receiver to Sender
  */
-function sendAck(ackNum) {
+function sendAck(ackNum, burstIndex = 0) {
   let shouldDrop = false;
   let dropReason = '';
 
@@ -745,10 +760,20 @@ function sendAck(ackNum) {
     DOM.labelDropNextAck.textContent = 'Drop Next ACK';
   }
 
+  // Calculate scheduled dispatch and arrival times with serialization delay
+  const currentTime = SimState.time.simulatedElapsedMs;
+  const propagationDelay = CONFIG.BASE_PACKET_TRANSIT_TIME_MS;
+  const transmissionDelay = CONFIG.TRANSMISSION_DELAY_MS;
+  const dispatchTime = currentTime + (burstIndex * transmissionDelay);
+  const arrivalTime = currentTime + propagationDelay + (burstIndex * transmissionDelay);
+
   const packet = {
     id: 'ack-' + ackNum + '-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
     type: 'ACK',
+    seq: ackNum,
     seqNum: ackNum,
+    dispatchTime: dispatchTime,
+    arrivalTime: arrivalTime,
     progress: 0.0,
     isLost: shouldDrop,
     dropReason: dropReason,
@@ -900,8 +925,10 @@ function onSenderTimeout() {
     }
     renderFrames();
 
-    for (let i = base; i < nextSeqNum; i++) {
-      transmitFrame(i, true);
+    let burstIdx = 0;
+    for (let seq = base; seq < nextSeqNum; seq++) {
+      transmitFrame(seq, true, burstIdx);
+      burstIdx++;
     }
     startSenderTimer();
   }
@@ -976,13 +1003,31 @@ function simulationTick(deltaMs) {
 }
 
 function advanceChannelPackets(packetList, deltaMs, onArrivalCallback, laneElement) {
-  const speedScale = deltaMs / CONFIG.BASE_PACKET_TRANSIT_TIME_MS;
+  const currentSimTime = SimState.time.simulatedElapsedMs;
+  const propagationDelay = CONFIG.BASE_PACKET_TRANSIT_TIME_MS;
 
-  for (let i = packetList.length - 1; i >= 0; i--) {
+  // Enforce Deterministic FIFO Arrival Ordering:
+  // Pre-sort in-flight packets in ascending order of scheduled arrival, dispatch time, and sequence number
+  packetList.sort((a, b) => 
+    (a.arrivalTime - b.arrivalTime) || 
+    (a.dispatchTime - b.dispatchTime) || 
+    (a.seq - b.seq)
+  );
+
+  const arrivedPackets = [];
+  const lostIndices = [];
+
+  for (let i = 0; i < packetList.length; i++) {
     const packet = packetList[i];
-    packet.progress += speedScale;
 
-    // Check for Loss Trigger (~50% across channel)
+    // Compute continuous physical progress based on simulation clock
+    if (currentSimTime < packet.dispatchTime) {
+      packet.progress = 0.0;
+    } else {
+      packet.progress = Math.min(1.0, (currentSimTime - packet.dispatchTime) / propagationDelay);
+    }
+
+    // Check for Loss Trigger (~45% across channel, once in active transit)
     if (packet.isLost && !packet.lossTriggered && packet.progress >= 0.45) {
       packet.lossTriggered = true;
       SimState.metrics.lostPackets++;
@@ -1003,23 +1048,41 @@ function advanceChannelPackets(packetList, deltaMs, onArrivalCallback, laneEleme
         }, 650);
       }
 
-      packetList.splice(i, 1);
+      lostIndices.push(i);
       continue;
     }
 
-    // Arrival at Destination (Progress >= 1.0)
-    if (packet.progress >= 1.0) {
+    // Arrival at Destination (currentSimTime >= arrivalTime or progress >= 1.0)
+    if (currentSimTime >= packet.arrivalTime || packet.progress >= 1.0) {
       if (packet.element && packet.element.parentNode) {
         packet.element.parentNode.removeChild(packet.element);
       }
-      packetList.splice(i, 1);
-      onArrivalCallback(packet);
+      arrivedPackets.push({ index: i, packet: packet });
       continue;
     }
 
     if (packet.element) {
       updatePacketElementPosition(packet);
     }
+  }
+
+  // Remove lost and arrived packets from the list (in reverse to preserve indices)
+  const indicesToRemove = [...lostIndices, ...arrivedPackets.map(a => a.index)].sort((a, b) => b - a);
+  for (const idx of indicesToRemove) {
+    packetList.splice(idx, 1);
+  }
+
+  // Enforce Deterministic FIFO Arrival Ordering:
+  // Simultaneous arrivals are strictly processed in ascending order of arrival time, dispatch time, and seq
+  arrivedPackets.sort((a, b) => 
+    (a.packet.arrivalTime - b.packet.arrivalTime) || 
+    (a.packet.dispatchTime - b.packet.dispatchTime) || 
+    (a.packet.seq - b.packet.seq) || 
+    (a.index - b.index)
+  );
+
+  for (const arrived of arrivedPackets) {
+    onArrivalCallback(arrived.packet);
   }
 }
 
@@ -1063,12 +1126,22 @@ function createPacketElement(packet, laneContainer) {
 
 function updatePacketElementPosition(packet) {
   if (!packet.element) return;
+  const currentSimTime = SimState.time.simulatedElapsedMs;
+  const isPendingDispatch = currentSimTime < packet.dispatchTime;
+
   const percent = Math.min(100, Math.max(0, packet.progress * 100));
 
   if (packet.type === 'FRAME') {
     packet.element.style.left = `${percent}%`;
   } else {
     packet.element.style.left = `${100 - percent}%`;
+  }
+
+  // Pending serialization in transmitter queue:
+  if (isPendingDispatch) {
+    packet.element.style.opacity = '0.5';
+  } else {
+    packet.element.style.opacity = '1';
   }
 }
 
